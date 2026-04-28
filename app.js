@@ -1,7 +1,8 @@
 'use strict';
 
 const API_URL =
-  'https://restcountries.com/v3.1/all?fields=name,capital,flags,cca2,region,population';
+  'https://restcountries.com/v3.1/all?fields=name,capital,flags,cca2,region,subregion,population,area,languages,currencies';
+const DATA_KEY = 'ff_countries_v2';
 
 // ── Easy pool: well-known countries ──────────────────────────────────────────
 const EASY = new Set([
@@ -123,15 +124,28 @@ function recordStreakEnd(streak) {
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function loadData() {
-  const cached = sessionStorage.getItem('ff_countries');
+  const cached = localStorage.getItem(DATA_KEY);
   if (cached) return JSON.parse(cached);
   const raw  = await (await fetch(API_URL)).json();
   const data = raw
     .filter(c => c.name?.common && c.flags?.svg && c.cca2)
-    .map(c => ({ code: c.cca2, name: c.name.common, capital: c.capital?.[0] ?? null,
-                 flag: c.flags.svg, region: c.region ?? 'Other' }))
+    .map(c => ({
+      code:        c.cca2,
+      name:        c.name.common,
+      officialName:c.name.official !== c.name.common ? c.name.official : null,
+      capital:     c.capital?.[0] ?? null,
+      flag:        c.flags.svg,
+      region:      c.region      ?? 'Other',
+      subregion:   c.subregion   ?? null,
+      population:  c.population  ?? 0,
+      area:        c.area        ?? null,
+      languages:   c.languages   ? Object.values(c.languages) : [],
+      currencies:  c.currencies
+        ? Object.values(c.currencies).map(x => x.symbol ? `${x.name} (${x.symbol})` : x.name)
+        : [],
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  sessionStorage.setItem('ff_countries', JSON.stringify(data));
+  localStorage.setItem(DATA_KEY, JSON.stringify(data));
   return data;
 }
 
@@ -276,6 +290,8 @@ document.addEventListener('click', e => {
       if (confirm('¿Borrar el registro de países descubiertos?'))
         { localStorage.removeItem('ff_disc'); renderExplorer(); }
       break;
+    case 'country-detail': showCountryModal(val); break;
+    case 'close-modal':    document.getElementById('ff-modal')?.remove(); break;
   }
 });
 
@@ -589,7 +605,7 @@ function renderExplorer() {
   const cards = filtered.map(c => {
     const found = disc.has(c.code);
     return `
-    <div class="exp-card ${found ? 'found' : ''}">
+    <div class="exp-card ${found ? 'found' : ''}" data-a="country-detail" data-v="${esc(c.code)}">
       ${found ? '<span class="exp-badge">✓</span>' : ''}
       <img src="${esc(c.flag)}" alt="${esc(c.name)}" loading="lazy"/>
       <p class="exp-name">${esc(c.name)}</p>
@@ -620,6 +636,52 @@ function renderExplorer() {
   </div>`;
 }
 
+// ── Country detail modal ──────────────────────────────────────────────────────
+function infoRow(icon, label, value) {
+  return `
+  <div class="info-row">
+    <span class="info-icon">${icon}</span>
+    <div><p class="info-label">${label}</p><p class="info-value">${esc(String(value))}</p></div>
+  </div>`;
+}
+
+function showCountryModal(code) {
+  const c = countries.find(x => x.code === code);
+  if (!c) return;
+  document.getElementById('ff-modal')?.remove();
+
+  const fmt = n => n.toLocaleString('es-AR');
+  const disc = getDiscovered();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'ff-modal';
+  overlay.innerHTML = `
+  <div class="modal-card">
+    <button class="modal-close" data-a="close-modal">✕</button>
+    ${disc.has(c.code) ? '<span class="modal-found-badge">✓ Descubierto</span>' : ''}
+    <img src="${esc(c.flag)}" alt="${esc(c.name)}" class="modal-flag"/>
+    <h2 class="modal-name">${esc(c.name)}</h2>
+    ${c.officialName ? `<p class="modal-official">${esc(c.officialName)}</p>` : ''}
+    <div class="modal-info">
+      ${c.capital    ? infoRow('🏙️','Capital',   c.capital) : ''}
+      ${               infoRow('🌍','Región',    c.region)}
+      ${c.subregion  ? infoRow('📍','Subregión', c.subregion) : ''}
+      ${c.population ? infoRow('👥','Población', fmt(c.population) + ' hab.') : ''}
+      ${c.area       ? infoRow('📐','Área',      fmt(Math.round(c.area)) + ' km²') : ''}
+      ${c.languages?.length  ? infoRow('🗣️','Idiomas', c.languages.join(', '))  : ''}
+      ${c.currencies?.length ? infoRow('💰','Moneda',  c.currencies.join(', ')) : ''}
+    </div>
+  </div>`;
+
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   try {
@@ -639,3 +701,7 @@ function renderExplorer() {
     </div>`;
   }
 })();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
