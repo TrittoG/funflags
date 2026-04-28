@@ -211,8 +211,15 @@ function submitAnswer(answer) {
   else         { S.wrong++;  S.streak = 0; }
   if (S.gameStyle === 'normal') recordNormal(correct);
   renderGame();
-  if (S.gameStyle === 'streak' && !correct)
-    streakTimeout = setTimeout(() => renderGameOver(), 1400);
+  if (S.gameStyle === 'streak') {
+    if (correct) {
+      streakTimeout = setTimeout(() => {
+        S.answered = false; S.selectedAnswer = null; S.question = makeQuestion(); renderGame();
+      }, 900);
+    } else {
+      streakTimeout = setTimeout(() => renderGameOver(), 1400);
+    }
+  }
 }
 function confirmSelect() {
   const sel = document.getElementById('sel');
